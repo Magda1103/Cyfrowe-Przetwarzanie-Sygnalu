@@ -1,7 +1,6 @@
 import struct
 import numpy as np
 
-
 def zapisz_sygnal_binarnie(sciezka, t1, fs, amplitudy):
     N = len(amplitudy)
     typ = 0
