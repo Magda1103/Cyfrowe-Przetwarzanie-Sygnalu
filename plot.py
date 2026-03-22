@@ -5,7 +5,7 @@ import numpy as np
 def rysuj_przebieg_czasowy(ax, t, a, tytul="PRZEBIEG CZASOWY"):
     ax.clear()
 
-    sygnaly_dyskretne = ["Skok", "Impuls", "Szum impulsowy"]
+    sygnaly_dyskretne = ["Impuls", "Szum impulsowy"]
 
     is_discrete = any(s in tytul for s in sygnaly_dyskretne)
 

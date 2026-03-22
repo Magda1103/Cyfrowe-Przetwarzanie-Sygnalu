@@ -1,9 +1,8 @@
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
-import struct
-from plot import rysuj_przebieg_czasowy, rysuj_histogram
+from file_manager import *
+from plot import *
 from generate import *
 import stats
 
@@ -50,7 +49,6 @@ class SignalApp(ctk.CTk):
 
         ctk.CTkLabel(self.sidebar, text="WYBÓR SYGNAŁU", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(10, 5))
 
-        # --- MENU ---
         self.signal_option_menu = ctk.CTkOptionMenu(
             self.sidebar,
             values=list(self.warianty_dict.keys()),
@@ -206,7 +204,24 @@ class SignalApp(ctk.CTk):
             elif wybor == "11":
                 self.current_t, self.current_a = szum_impulsowy(A, t1, d, kw, f)
 
+            sygnaly_okresowe = ["3", "4", "5", "6", "7", "8"]
+            if wybor in sygnaly_okresowe:
+                liczba_pelnych_okresow = int(d // T)
+                if liczba_pelnych_okresow > 0:
+                    t_max = t1 + (liczba_pelnych_okresow * T)
+
+                    t_arr = np.array(self.current_t)
+                    a_arr = np.array(self.current_a)
+
+                    maska = t_arr < t_max
+                    self.current_t = t_arr[maska]
+                    self.current_a = a_arr[maska]
+                else:
+                    messagebox.showwarning("Uwaga",
+                                           "Czas trwania jest krótszy niż jeden okres. Statystyki mogą być błędne.")
+
             self.update_view(nazwa_wyswietlana)
+
         except Exception as e:
             messagebox.showerror("Błąd", f"Niepoprawne parametry: {e}")
 
@@ -255,23 +270,31 @@ class SignalApp(ctk.CTk):
         path = filedialog.asksaveasfilename(defaultextension=".bin")
         if path:
             fs = float(self.inputs["f"]["entry"].get())
-            header = struct.pack('ddii', self.current_t[0], fs, 0, len(self.current_a))
-            with open(path, 'wb') as f:
-                f.write(header)
-                for val in self.current_a: f.write(struct.pack('d', float(val)))
-            messagebox.showinfo("Zapis", "Poprawnie zapisano.")
+            wybor = self.warianty_dict[self.signal_option_menu.get()]
+
+            typ_sygnalu = 1 if wybor in ["9", "10", "11"] else 0
+
+            zapisz_sygnal_binarnie(path, self.current_t[0], fs, self.current_a, typ=typ_sygnalu)
+            messagebox.showinfo("Zapis", "Sygnał zapisany z informacją o typie.")
 
     def load_and_show(self):
         path = filedialog.askopenfilename(filetypes=[("Pliki binarne", "*.bin")])
         if path:
-            t, a, fs = self._read_bin(path)
+            t, a, fs, typ = odczytaj_sygnal_binarnie(path)
             self.current_t, self.current_a = t, a
-            self.update_view(f"Plik: {path.split('/')[-1]}")
+
+            nazwa_pliku = path.split('/')[-1]
+            if typ == 1:
+                nazwa_wyswietlana = f"Impuls - {nazwa_pliku}"
+            else:
+                nazwa_wyswietlana = nazwa_pliku
+
+            self.update_view(nazwa_wyswietlana)
 
     def load_to_buffer(self, num):
-        path = filedialog.askopenfilename(filetypes=[("Pliki binarne", "*.bin")])
+        path = filedialog.askopenfilename(filetypes=[("Pliki binarne", "*.bin")], title=f"Wczytaj do S{num}")
         if path:
-            t, a, fs = self._read_bin(path)
+            t, a, fs = odczytaj_sygnal_binarnie(path)
             name = path.split('/')[-1]
             if num == 1:
                 self.sig1 = {"t": t, "a": a, "fs": fs}
@@ -279,13 +302,6 @@ class SignalApp(ctk.CTk):
             else:
                 self.sig2 = {"t": t, "a": a, "fs": fs}
                 self.label_s2.configure(text=f"S2: {name}")
-
-    def _read_bin(self, path):
-        with open(path, 'rb') as f:
-            h = struct.unpack('ddii', f.read(24))
-            t1, fs, typ, N = h
-            d = [struct.unpack('d', f.read(8))[0] for _ in range(N)]
-        return np.array([t1 + i / fs for i in range(N)]), np.array(d), fs
 
     def set_to_buffer(self, num):
         if self.current_a is not None:
