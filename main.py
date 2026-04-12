@@ -294,7 +294,7 @@ class SignalApp(ctk.CTk):
     def load_to_buffer(self, num):
         path = filedialog.askopenfilename(filetypes=[("Pliki binarne", "*.bin")], title=f"Wczytaj do S{num}")
         if path:
-            t, a, fs = odczytaj_sygnal_binarnie(path)
+            t, a, fs, typ = odczytaj_sygnal_binarnie(path)
             name = path.split('/')[-1]
             if num == 1:
                 self.sig1 = {"t": t, "a": a, "fs": fs}
