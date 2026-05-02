@@ -156,3 +156,50 @@ def szum_impulsowy(A, t1, d, p, f):
             lista_a.append(0.0)
         t += krok
     return lista_t, lista_a
+
+
+# --- PRÓBKOWANIE, KWANTYZACJA, REKONSTRUKCJA ---
+
+def probkowanie_rownomierne(t, a, fs_oryginalne, fs_docelowe):
+    """(S1) Próbkowanie równomierne"""
+    krok = max(1, int(fs_oryginalne / fs_docelowe))
+    return t[::krok], a[::krok]
+
+
+def kwantyzacja_q2(a, b):
+    """(Q2) Kwantyzacja równomierna z zaokrąglaniem dla b bitów"""
+    L = 2 ** b
+    a_min, a_max = np.min(a), np.max(a)
+    if L <= 1 or a_max == a_min:
+        return a
+    delta = (a_max - a_min) / (L - 1)
+    # Skalowanie do poziomów i powrót do wartości oryginalnych
+    a_q = np.round((a - a_min) / delta) * delta + a_min
+    return a_q
+
+
+def rekonstrukcja_r2(t_oryg, t_probk, a_probk):
+    """(R2) Interpolacja pierwszego rzędu (FOH)"""
+    # np.interp robi dokładnie interpolację liniową (łączenie punktów prostą)
+    return np.interp(t_oryg, t_probk, a_probk)
+
+
+def rekonstrukcja_r3(t_oryg, t_probk, a_probk, n_uwzgl=10):
+    """(R3) Rekonstrukcja funkcją sinc"""
+    Ts = t_probk[1] - t_probk[0] if len(t_probk) > 1 else 1.0
+    a_rek = np.zeros(len(t_oryg))
+
+    for i, t_val in enumerate(t_oryg):
+        # Zawężamy obszar sumowania dla optymalizacji wydajności
+        idx_center = np.argmin(np.abs(t_probk - t_val))
+        idx_start = max(0, idx_center - n_uwzgl)
+        idx_end = min(len(t_probk), idx_center + n_uwzgl + 1)
+
+        t_sub = t_probk[idx_start:idx_end]
+        a_sub = a_probk[idx_start:idx_end]
+
+        args = (t_val - t_sub) / Ts
+        # np.sinc w bibliotece numpy to z definicji sin(pi*x)/(pi*x)
+        a_rek[i] = np.sum(a_sub * np.sinc(args))
+
+    return a_rek

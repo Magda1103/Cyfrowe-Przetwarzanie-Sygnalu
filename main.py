@@ -24,6 +24,10 @@ class SignalApp(ctk.CTk):
         self.sig2 = {"t": None, "a": None, "fs": None}
         self.history = []
         self.history_index = -1
+        self.oryginalny_t = None
+        self.oryginalny_a = None
+        self.probkowany_t = None
+        self.probkowany_a = None
 
         # Mapowanie nazw wyświetlanych w menu na numery sygnałów
         self.warianty_dict = {
@@ -74,6 +78,23 @@ class SignalApp(ctk.CTk):
         self.add_input("Współczynnik wypełnienia / p", "kw", "0.5")
         self.add_input("Moment skoku/impulsu (ts)", "ts", "5.0")
         self.add_input("Biny (histogram)", "bins", "15")
+        self.add_input("Częstotliwość próbkowania (fs) docelowa [Hz]", "fs_new", "20.0")
+        self.add_input("Liczba bitów kwantyzatora (b)", "bits", "4")
+        self.add_input("Liczba próbek sinc (N)", "sinc_n", "10")
+
+        # --- SEKCJA KONWERSJI ---
+        ctk.CTkLabel(self.sidebar, text="KONWERSJA A/C i C/A", font=ctk.CTkFont(size=16, weight="bold")).pack(
+            pady=(20, 5))
+
+        konw_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        konw_frame.pack(pady=5, padx=20, fill="x")
+
+        ctk.CTkButton(konw_frame, text="S1 + Q2 (Próbkowanie i Kwantyzacja)", command=self.perform_ac,
+                      fg_color="#e74c3c").pack(pady=2, fill="x")
+        ctk.CTkButton(konw_frame, text="Rekonstrukcja (R2 - FOH)", command=lambda: self.perform_ca("R2"),
+                      fg_color="#34495e").pack(pady=2, fill="x")
+        ctk.CTkButton(konw_frame, text="Rekonstrukcja (R3 - Sinc)", command=lambda: self.perform_ca("R3"),
+                      fg_color="#34495e").pack(pady=2, fill="x")
 
         ctk.CTkButton(self.sidebar, text="GENERUJ SYGNAŁ", command=self.generate, fg_color="#2ecc71",
                       hover_color="#27ae60").pack(pady=10, padx=20, fill="x")
@@ -161,7 +182,8 @@ class SignalApp(ctk.CTk):
             "10": ["A", "t1", "d", "f", "ts"],
             "11": ["A", "t1", "d", "f", "kw"]
         }
-        potrzebne = mapa.get(wybor, []) + ["bins"]
+
+        potrzebne = mapa.get(wybor, []) + ["bins", "fs_new", "bits", "sinc_n"]
         for key in self.inputs:
             if key in potrzebne:
                 self.inputs[key]["frame"].pack(padx=20, pady=2, fill="x")
@@ -331,6 +353,82 @@ class SignalApp(ctk.CTk):
         self.btn_prev.configure(state="normal" if self.history_index > 0 else "disabled")
         self.btn_next.configure(state="normal" if self.history_index < len(self.history) - 1 else "disabled")
 
+    def perform_ac(self):
+        if self.current_t is None or self.current_a is None:
+            messagebox.showwarning("Błąd", "Najpierw wygeneruj sygnał bazowy (analogowy)!")
+            return
+
+        try:
+            # Pamiętamy oryginał do późniejszego porównywania z sygnałem zrekonstruowanym
+            self.oryginalny_t = np.array(self.current_t)
+            self.oryginalny_a = np.array(self.current_a)
+
+            fs_oryg = float(self.inputs["f"]["entry"].get())
+            fs_new = float(self.inputs["fs_new"]["entry"].get())
+            bits = int(self.inputs["bits"]["entry"].get())
+
+            # (S1) Próbkowanie
+            t_p, a_p = probkowanie_rownomierne(self.oryginalny_t, self.oryginalny_a, fs_oryg, fs_new)
+
+            # (Q2) Kwantyzacja
+            a_pq = kwantyzacja_q2(a_p, bits)
+
+            self.probkowany_t = t_p
+            self.probkowany_a = a_pq
+
+            # Wyświetlamy spróbkowany i skwantyzowany sygnał (udaje postać dyskretną)
+            self.current_t = self.probkowany_t
+            self.current_a = self.probkowany_a
+
+            self.update_view("Sygnał po konwersji A/C (Impuls)")
+
+            # Liczymy błędy samej kwantyzacji (porównujemy kwantyzowany z po prostu próbkowanym)
+            self.show_metrics(a_p, a_pq, "BŁĘDY KWANTYZACJI (Q2)")
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Błąd w konwersji A/C: {e}")
+
+    def perform_ca(self, metoda):
+        if self.probkowany_t is None or self.oryginalny_t is None:
+            messagebox.showwarning("Błąd", "Najpierw wykonaj konwersję A/C!")
+            return
+
+        try:
+            if metoda == "R2":
+                a_rek = rekonstrukcja_r2(self.oryginalny_t, self.probkowany_t, self.probkowany_a)
+                nazwa = "Zrekonstruowany (R2 - FOH)"
+            elif metoda == "R3":
+                n_sinc = int(self.inputs["sinc_n"]["entry"].get())
+                a_rek = rekonstrukcja_r3(self.oryginalny_t, self.probkowany_t, self.probkowany_a, n_sinc)
+                nazwa = f"Zrekonstruowany (R3 - Sinc, N={n_sinc})"
+
+            # Aktualizacja wykresu na zrekonstruowany (gęsta dziedzina t)
+            self.current_t = self.oryginalny_t
+            self.current_a = a_rek
+
+            self.update_view(nazwa)
+
+            # Obliczenie błędu na linii oryginał ciągły <-> rekonstrukcja ciągła
+            self.show_metrics(self.oryginalny_a, a_rek, f"BŁĘDY REKONSTRUKCJI ({metoda})")
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Błąd w rekonstrukcji: {e}")
+
+    def show_metrics(self, oryginal, po_zmianie, tytul):
+        # Funkcja obliczająca i dopisująca statystyki C1-C4 do okienka
+        m_mse = stats.mse(oryginal, po_zmianie)
+        m_snr = stats.snr(oryginal, po_zmianie)
+        m_psnr = stats.psnr(oryginal, po_zmianie)
+        m_md = stats.md(oryginal, po_zmianie)
+        val_enob = stats.enob(m_snr)
+
+        self.stats_box.insert("end", f"\n--- {tytul} ---\n")
+        self.stats_box.insert("end", f"MSE (C1) : {m_mse:.4f}\n")
+        self.stats_box.insert("end", f"SNR (C2) : {m_snr:.4f} dB\n")
+        self.stats_box.insert("end", f"PSNR (C3): {m_psnr:.4f} dB\n")
+        self.stats_box.insert("end", f"MD (C4)  : {m_md:.4f}\n")
+        if val_enob != float('inf'):
+            self.stats_box.insert("end", f"ENOB     : {val_enob:.2f} bitów\n")
 
 if __name__ == "__main__":
     app = SignalApp()
