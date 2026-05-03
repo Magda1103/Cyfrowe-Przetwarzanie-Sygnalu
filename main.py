@@ -192,16 +192,22 @@ class SignalApp(ctk.CTk):
 
     def generate(self):
         try:
-            A = float(self.inputs["A"]["entry"].get())
-            t1 = float(self.inputs["t1"]["entry"].get())
-            d = float(self.inputs["d"]["entry"].get())
-            f = float(self.inputs["f"]["entry"].get())
-            T = float(self.inputs["T"]["entry"].get())
-            kw = float(self.inputs["kw"]["entry"].get())
-            ts = float(self.inputs["ts"]["entry"].get())
+            # Funkcja pomocnicza do bezpiecznego pobierania float
+            def get_val(key):
+                val = self.inputs[key]["entry"].get()
+                return float(val) if val else 0.0
+
+            A = get_val("A")
+            t1 = get_val("t1")
+            d = get_val("d")
+            f = get_val("f")
+            T = get_val("T")
+            kw = get_val("kw")
+            ts = get_val("ts")
 
             nazwa_wyswietlana = self.signal_option_menu.get()
             wybor = self.warianty_dict[nazwa_wyswietlana]
+            # ... reszta kodu z IF-ami (wybor == "1" itd.) bez zmian ...
 
             if wybor == "1":
                 self.current_t, self.current_a = szum_o_rozkladzie_jednostkowym(A, t1, d, f)
@@ -261,7 +267,10 @@ class SignalApp(ctk.CTk):
         elif op == "*":
             self.current_a = a1 * a2
         elif op == "/":
-            self.current_a = a1 / np.where(a2 == 0, 1e-9, a2)
+            # Zamiana zer na NaN, co wykres po prostu zignoruje bez generowania szpil
+            a2_safe = np.where(np.abs(a2) < 1e-9, np.nan, a2)
+            self.current_a = a1 / a2_safe
+
         self.current_t = np.array(self.sig1["t"])[:length]
         self.update_view(f"Operacja: {op}")
 
@@ -355,35 +364,44 @@ class SignalApp(ctk.CTk):
 
     def perform_ac(self):
         if self.current_t is None or self.current_a is None:
-            messagebox.showwarning("Błąd", "Najpierw wygeneruj sygnał bazowy (analogowy)!")
+            messagebox.showwarning("Błąd", "Najpierw wygeneruj sygnał!")
             return
 
         try:
-            # Pamiętamy oryginał do późniejszego porównywania z sygnałem zrekonstruowanym
             self.oryginalny_t = np.array(self.current_t)
             self.oryginalny_a = np.array(self.current_a)
 
-            fs_oryg = float(self.inputs["f"]["entry"].get())
             fs_new = float(self.inputs["fs_new"]["entry"].get())
             bits = int(self.inputs["bits"]["entry"].get())
 
+            # --- S1 ---
             # (S1) Próbkowanie
-            t_p, a_p = probkowanie_rownomierne(self.oryginalny_t, self.oryginalny_a, fs_oryg, fs_new)
+            t_p, a_p = probkowanie_rownomierne(self.oryginalny_t, self.oryginalny_a, fs_new)
 
             # (Q2) Kwantyzacja
             a_pq = kwantyzacja_q2(a_p, bits)
 
+            # Rekonstrukcja pomocnicza do policzenia błędu próbkowania (S1)
+            # Używamy R2 (FOH) jako wariantu domyślnego do porównań zgodnie z ustaleniami z PDF
+            a_rec_sampling = rekonstrukcja_r2(self.oryginalny_t, t_p, a_p)
+
+            # --- KOLEJNOŚĆ WYŚWIETLANIA (NAJPIERW WIDOK, POTEM METRYKI) ---
+
+            # 1. Zapis stanu do GUI
             self.probkowany_t = t_p
             self.probkowany_a = a_pq
+            self.current_t = t_p
+            self.current_a = a_pq
 
-            # Wyświetlamy spróbkowany i skwantyzowany sygnał (udaje postać dyskretną)
-            self.current_t = self.probkowany_t
-            self.current_a = self.probkowany_a
-
+            # 2. Odświeżenie widoku (to CZYŚCI okno statystyk i rysuje wykres)
             self.update_view("Sygnał po konwersji A/C (Impuls)")
 
-            # Liczymy błędy samej kwantyzacji (porównujemy kwantyzowany z po prostu próbkowanym)
+            # 3. Dopisanie dedykowanych metryk do czystego już okna
+            self.show_metrics(self.oryginalny_a, a_rec_sampling, "BŁĘDY PRÓBKOWANIA (S1)")
             self.show_metrics(a_p, a_pq, "BŁĘDY KWANTYZACJI (Q2)")
+
+            snr_teoria = 6.02 * bits + 1.76
+            self.stats_box.insert("end", f"SNR teoretyczne: {snr_teoria:.2f} dB\n")
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Błąd w konwersji A/C: {e}")
@@ -402,14 +420,12 @@ class SignalApp(ctk.CTk):
                 a_rek = rekonstrukcja_r3(self.oryginalny_t, self.probkowany_t, self.probkowany_a, n_sinc)
                 nazwa = f"Zrekonstruowany (R3 - Sinc, N={n_sinc})"
 
-            # Aktualizacja wykresu na zrekonstruowany (gęsta dziedzina t)
+
             self.current_t = self.oryginalny_t
             self.current_a = a_rek
 
-            self.update_view(nazwa)
-
-            # Obliczenie błędu na linii oryginał ciągły <-> rekonstrukcja ciągła
-            self.show_metrics(self.oryginalny_a, a_rek, f"BŁĘDY REKONSTRUKCJI ({metoda})")
+            self.update_view(nazwa)  # To czyści okno
+            self.show_metrics(self.oryginalny_a, a_rek, f"BŁĘDY REKONSTRUKCJI ({metoda})")  # A to dopisuje wyniki
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Błąd w rekonstrukcji: {e}")

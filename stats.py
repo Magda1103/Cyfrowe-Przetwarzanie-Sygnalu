@@ -33,7 +33,7 @@ def psnr(x, x_hat):
     blad = mse(x, x_hat)
     if blad == 0:
         return float('inf')
-    return 10 * np.log10((np.max(x)**2) / blad)
+    return 10 * np.log10((np.max(np.abs(x))**2) / blad)
 
 def md(x, x_hat):
     """(C4) Maksymalna różnica"""

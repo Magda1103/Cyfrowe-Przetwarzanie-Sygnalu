@@ -160,10 +160,21 @@ def szum_impulsowy(A, t1, d, p, f):
 
 # --- PRÓBKOWANIE, KWANTYZACJA, REKONSTRUKCJA ---
 
-def probkowanie_rownomierne(t, a, fs_oryginalne, fs_docelowe):
-    """(S1) Próbkowanie równomierne"""
-    krok = max(1, int(fs_oryginalne / fs_docelowe))
-    return t[::krok], a[::krok]
+def probkowanie_rownomierne(t_oryg, a_oryg, fs_docelowe):
+    """(S1) Próbkowanie równomierne - prawdziwe tworzenie nowej osi Ts"""
+    # Obliczenie nowego okresu próbkowania Ts
+    Ts = 1.0 / fs_docelowe
+
+    # Tworzymy nową, idealną oś czasu: od początku do końca oryginału z krokiem Ts
+    t_start = t_oryg[0]
+    t_end = t_oryg[-1]
+    t_probk = np.arange(t_start, t_end, Ts)
+
+    # Pobieramy amplitudy DOKŁADNIE w punktach t_probk.
+    # W ten sposób symulujemy pobranie próbki z fizycznego, ciągłego sygnału f(t).
+    a_probk = np.interp(t_probk, t_oryg, a_oryg)
+
+    return t_probk, a_probk
 
 
 def kwantyzacja_q2(a, b):
