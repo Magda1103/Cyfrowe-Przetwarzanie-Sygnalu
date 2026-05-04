@@ -2,23 +2,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def rysuj_przebieg_czasowy(ax, t, a, tytul="PRZEBIEG CZASOWY"):
+def rysuj_przebieg_czasowy(ax, t, a, tytul="PRZEBIEG CZASOWY",
+                          t_ref=None, a_ref=None, label_ref="Oryginał"):
+
     ax.clear()
 
     sygnaly_dyskretne = ["Impuls", "Szum impulsowy"]
-
     is_discrete = any(s in tytul for s in sygnaly_dyskretne)
+
 
     if is_discrete:
         ax.plot(t, a, linestyle='None', marker='s', markersize=3,
-                color='#e74c3c', alpha=0.8, label="próbki")
+                color='#e74c3c', alpha=0.8, label="Próbki")
     else:
-        ax.plot(t, a, color='#2980b9', linewidth=1.5)
+        ax.plot(t, a, color='#2980b9', linewidth=2, label="Sygnał")
+
+
+    if t_ref is not None and a_ref is not None:
+        ax.plot(t_ref, a_ref, linestyle='--', linewidth=1.5,
+                color='#f39c12', label=label_ref)
 
     ax.set_title(tytul, fontweight='bold', fontsize=10)
     ax.set_xlabel("T [s]")
     ax.set_ylabel("Amplituda")
     ax.grid(True, linestyle='--', alpha=0.6)
+
+    ax.legend()
+
     ax.figure.tight_layout()
 
 

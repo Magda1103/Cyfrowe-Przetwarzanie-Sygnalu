@@ -248,6 +248,14 @@ class SignalApp(ctk.CTk):
                     messagebox.showwarning("Uwaga",
                                            "Czas trwania jest krótszy niż jeden okres. Statystyki mogą być błędne.")
 
+            # ustaw nowy oryginał
+            self.oryginalny_t = np.array(self.current_t)
+            self.oryginalny_a = np.array(self.current_a)
+
+            # wyczyść stare A/C
+            self.probkowany_t = None
+            self.probkowany_a = None
+
             self.update_view(nazwa_wyswietlana)
 
         except Exception as e:
@@ -292,7 +300,22 @@ class SignalApp(ctk.CTk):
             self.history_index = len(self.history) - 1
             self.update_nav_buttons()
 
-        rysuj_przebieg_czasowy(self.ax1, self.current_t, self.current_a, nazwa)
+        if self.oryginalny_t is not None and self.oryginalny_a is not None:
+            rysuj_przebieg_czasowy(
+                self.ax1,
+                self.current_t,
+                self.current_a,
+                nazwa,
+                t_ref=self.oryginalny_t,
+                a_ref=self.oryginalny_a
+            )
+        else:
+            rysuj_przebieg_czasowy(
+                self.ax1,
+                self.current_t,
+                self.current_a,
+                nazwa
+            )
         rysuj_histogram(self.ax2, self.current_a, int(self.inputs["bins"]["entry"].get()))
         self.canvas.draw()
 
@@ -368,64 +391,147 @@ class SignalApp(ctk.CTk):
             return
 
         try:
+            # --- ORYGINAŁ ---
             self.oryginalny_t = np.array(self.current_t)
             self.oryginalny_a = np.array(self.current_a)
 
             fs_new = float(self.inputs["fs_new"]["entry"].get())
             bits = int(self.inputs["bits"]["entry"].get())
 
-            # --- S1 ---
-            # (S1) Próbkowanie
-            t_p, a_p = probkowanie_rownomierne(self.oryginalny_t, self.oryginalny_a, fs_new)
+            # --- S1: PRÓBKOWANIE ---
+            t_p, a_p = probkowanie_rownomierne(
+                self.oryginalny_t,
+                self.oryginalny_a,
+                fs_new
+            )
 
-            # (Q2) Kwantyzacja
+            # --- Q2: KWANTYZACJA ---
             a_pq = kwantyzacja_q2(a_p, bits)
 
-            # Rekonstrukcja pomocnicza do policzenia błędu próbkowania (S1)
-            # Używamy R2 (FOH) jako wariantu domyślnego do porównań zgodnie z ustaleniami z PDF
-            a_rec_sampling = rekonstrukcja_r2(self.oryginalny_t, t_p, a_p)
 
-            # --- KOLEJNOŚĆ WYŚWIETLANIA (NAJPIERW WIDOK, POTEM METRYKI) ---
+            self.s1_t = t_p
+            self.s1_a = a_p
 
-            # 1. Zapis stanu do GUI
+            self.q2_t = t_p
+            self.q2_a = a_pq
+
+
             self.probkowany_t = t_p
-            self.probkowany_a = a_pq
-            self.current_t = t_p
-            self.current_a = a_pq
+            self.probkowany_a = a_p
+            self.kwantyzowany_a = a_pq
 
-            # 2. Odświeżenie widoku (to CZYŚCI okno statystyk i rysuje wykres)
-            self.update_view("Sygnał po konwersji A/C (Impuls)")
+            # --- DO STATYSTYK ---
+            a_rec_sampling = rekonstrukcja_r2(
+                self.oryginalny_t,
+                t_p,
+                a_p
+            )
+            self.a_rec_s1 = a_rec_sampling
 
-            # 3. Dopisanie dedykowanych metryk do czystego już okna
-            self.show_metrics(self.oryginalny_a, a_rec_sampling, "BŁĘDY PRÓBKOWANIA (S1)")
-            self.show_metrics(a_p, a_pq, "BŁĘDY KWANTYZACJI (Q2)")
+            # --- RYSOWANIE ---
+            self.ax1.clear()
+
+            # 🟢 ORYGINAŁ
+            self.ax1.plot(
+                self.oryginalny_t,
+                self.oryginalny_a,
+                color='green',
+                linewidth=2,
+                label="Oryginał"
+            )
+
+            # 🔴 PRÓBKI
+            self.ax1.plot(
+                self.s1_t,
+                self.s1_a,
+                'ro',
+                markersize=4,
+                label="Próbki (S1)"
+            )
+
+            # 🔵 KWANTYZACJA
+            self.ax1.step(
+                self.q2_t,
+                self.q2_a,
+                where='post',
+                color='blue',
+                linewidth=2,
+                label="Kwantyzacja (Q2)"
+            )
+
+            self.ax1.set_title("Próbkowanie i kwantyzacja")
+            self.ax1.set_xlabel("T [s]")
+            self.ax1.set_ylabel("Amplituda")
+            self.ax1.grid(True)
+            self.ax1.legend()
+
+            # histogram z kwantyzacji
+            rysuj_histogram(self.ax2, self.q2_a, int(self.inputs["bins"]["entry"].get()))
+
+            self.canvas.draw()
+
+            # --- STATYSTYKI ---
+            self.stats_box.delete("0.0", "end")
+            self.stats_box.insert("end", "NAZWA: S1 + Q2\n")
+            self.stats_box.insert("end", "-" * 25 + "\n")
+
+            # błędy próbkowania
+            self.show_metrics(
+                self.oryginalny_a,
+                a_rec_sampling,
+                "BŁĘDY PRÓBKOWANIA (S1)"
+            )
+
+            # błędy kwantyzacji
+            self.show_metrics(
+                a_p,
+                a_pq,
+                "BŁĘDY KWANTYZACJI (Q2)"
+            )
 
             snr_teoria = 6.02 * bits + 1.76
             self.stats_box.insert("end", f"SNR teoretyczne: {snr_teoria:.2f} dB\n")
+
+            # ustaw current na kwantyzację (żeby dalej działało GUI)
+            self.current_t = t_p
+            self.current_a = a_pq
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Błąd w konwersji A/C: {e}")
 
     def perform_ca(self, metoda):
-        if self.probkowany_t is None or self.oryginalny_t is None:
-            messagebox.showwarning("Błąd", "Najpierw wykonaj konwersję A/C!")
+        if self.s1_t is None or self.oryginalny_t is None:
+            messagebox.showwarning("Błąd", "Najpierw wykonaj S1 + Q2!")
             return
 
         try:
             if metoda == "R2":
-                a_rek = rekonstrukcja_r2(self.oryginalny_t, self.probkowany_t, self.probkowany_a)
+                a_rek = self.a_rec_s1
                 nazwa = "Zrekonstruowany (R2 - FOH)"
+
+
+
             elif metoda == "R3":
+
                 n_sinc = int(self.inputs["sinc_n"]["entry"].get())
-                a_rek = rekonstrukcja_r3(self.oryginalny_t, self.probkowany_t, self.probkowany_a, n_sinc)
+
+                a_rek = rekonstrukcja_r3(
+
+                    self.oryginalny_t,
+
+                    self.s1_t,
+
+                    self.s1_a,
+
+                    n_sinc
+
+                )
                 nazwa = f"Zrekonstruowany (R3 - Sinc, N={n_sinc})"
-
-
             self.current_t = self.oryginalny_t
             self.current_a = a_rek
 
-            self.update_view(nazwa)  # To czyści okno
-            self.show_metrics(self.oryginalny_a, a_rek, f"BŁĘDY REKONSTRUKCJI ({metoda})")  # A to dopisuje wyniki
+            self.update_view(nazwa)
+            self.show_metrics(self.oryginalny_a, a_rek, f"BŁĘDY REKONSTRUKCJI ({metoda})")
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Błąd w rekonstrukcji: {e}")
