@@ -202,9 +202,11 @@ def rekonstrukcja_r3(t_oryg, t_probk, a_probk, n_uwzgl=10):
 
     for i, t_val in enumerate(t_oryg):
         # Zawężamy obszar sumowania dla optymalizacji wydajności
-        idx_center = np.argmin(np.abs(t_probk - t_val))
-        idx_start = max(0, idx_center - n_uwzgl)
-        idx_end = min(len(t_probk), idx_center + n_uwzgl + 1)
+        idx_left = int((t_val - t_probk[0]) / Ts)
+        idx_left = np.clip(idx_left, 0, len(t_probk) - 1)
+        idx_start = max(0, idx_left - n_uwzgl + 1)
+        idx_end = min(len(t_probk), idx_left + n_uwzgl + 1)
+        print(idx_start, idx_end)
 
         t_sub = t_probk[idx_start:idx_end]
         a_sub = a_probk[idx_start:idx_end]
