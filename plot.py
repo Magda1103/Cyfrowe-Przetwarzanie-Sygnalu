@@ -3,7 +3,7 @@ import numpy as np
 
 
 def rysuj_przebieg_czasowy(ax, t, a, tytul="PRZEBIEG CZASOWY",
-                          t_ref=None, a_ref=None, label_ref="Oryginał"):
+                          t_ref=None, a_ref=None, label_ref="Oryginał", show_ref=True):
 
     ax.clear()
 
@@ -19,6 +19,10 @@ def rysuj_przebieg_czasowy(ax, t, a, tytul="PRZEBIEG CZASOWY",
 
 
     if t_ref is not None and a_ref is not None:
+        ax.plot(t_ref, a_ref, linestyle='--', linewidth=1.5,
+                color='#f39c12', label=label_ref)
+
+    if show_ref and t_ref is not None and a_ref is not None:
         ax.plot(t_ref, a_ref, linestyle='--', linewidth=1.5,
                 color='#f39c12', label=label_ref)
 

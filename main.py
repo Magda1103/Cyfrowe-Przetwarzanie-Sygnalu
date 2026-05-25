@@ -82,6 +82,45 @@ class SignalApp(ctk.CTk):
         self.add_input("Liczba bitów kwantyzatora (b)", "bits", "4")
         self.add_input("Liczba próbek sinc (N)", "sinc_n", "10")
 
+        # ... istniejące parametry ...
+        self.add_input("Rząd filtru (M)", "M", "63")
+        self.add_input("Współczynnik odcięcia (K)", "K", "8.0")
+
+        # --- PARAMETRY RADARU (od strony środowiska) ---
+        self.add_input("Krok czasu symulacji (dt) [s]", "dt_sim", "0.0001")
+        self.add_input("Prędkość obiektu (v_obj) [m/s]", "v_obj", "15.0")
+        self.add_input("Prędkość sygnału (V) [m/s]", "v_sig", "300.0")
+        self.add_input("Początkowa odległość obiektu [m]", "d0", "50.0")
+
+        # --- PARAMETRY RADARU (od strony czujnika) ---
+        self.add_input("Długość bufora radaru (N próbek)", "N_radar", "500")
+        self.add_input("Okres raportowania [s]", "T_rep", "1.0")
+        self.add_input("Liczba kroków symulacji (raportów)", "n_reps", "10")
+
+        # --- SEKCJA FILTRACJI ---
+        ctk.CTkLabel(self.sidebar, text="FILTRACJA", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 5))
+
+        self.window_menu = ctk.CTkOptionMenu(
+            self.sidebar,
+            values=["Ok. Prostokątne", "Ok. Blackmana (O3)"]
+        )
+        self.window_menu.pack(pady=5, padx=20, fill="x")
+
+        self.filter_menu = ctk.CTkOptionMenu(
+            self.sidebar,
+            values=["Dolnoprzepustowy", "Górnoprzepustowy (F2)"]
+        )
+        self.filter_menu.pack(pady=5, padx=20, fill="x")
+
+        ctk.CTkButton(self.sidebar, text="FILTRUJ", command=self.perform_filtering,
+                      fg_color="#d35400", hover_color="#e67e22").pack(pady=10, padx=20, fill="x")
+
+        # --- SEKCJA RADARU ---
+        ctk.CTkLabel(self.sidebar, text="RADAR KORELACYJNY", font=ctk.CTkFont(size=16, weight="bold")).pack(
+            pady=(20, 5))
+        ctk.CTkButton(self.sidebar, text="SKANUJ OBIEKT", command=self.simulate_radar,
+                      fg_color="#8e44ad", hover_color="#9b59b6").pack(pady=10, padx=20, fill="x")
+
         # --- SEKCJA KONWERSJI ---
         ctk.CTkLabel(self.sidebar, text="KONWERSJA A/C i C/A", font=ctk.CTkFont(size=16, weight="bold")).pack(
             pady=(20, 5))
@@ -118,7 +157,6 @@ class SignalApp(ctk.CTk):
                       width=10).grid(row=0, column=1, padx=5, sticky="ew")
         buffer_frame.grid_columnconfigure((0, 1), weight=1)
 
-        # Operacje i Statystyki
         ctk.CTkLabel(self.sidebar, text="OPERACJE (D1-D4)", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 5))
         ctk.CTkButton(self.sidebar, text="WCZYTAJ PLIK 1", command=lambda: self.load_to_buffer(1),
                       fg_color="#9b59b6").pack(pady=2, padx=20, fill="x")
@@ -131,8 +169,12 @@ class SignalApp(ctk.CTk):
 
         ops_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         ops_frame.pack(pady=5)
-        for i, op in enumerate([("+", "D1"), ("-", "D2"), ("*", "D3"), ("/", "D4")]):
-            ctk.CTkButton(ops_frame, text=op[0], width=60, command=lambda o=op[0]: self.perform_math(o)).grid(
+
+        ops = [("+", "D1"), ("-", "D2"), ("*", "D3"), ("/", "D4"),
+               ("Splot", "Splot"), ("Kor. bezp.", "Kor_bezp"), ("Kor. splot", "Kor_splot")]
+
+        for i, op in enumerate(ops):
+            ctk.CTkButton(ops_frame, text=op[0], width=90, command=lambda o=op[1]: self.perform_math(o)).grid(
                 row=i // 2, column=i % 2, padx=5, pady=5)
 
         ctk.CTkLabel(self.sidebar, text="PLIKI", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 0))
@@ -183,7 +225,8 @@ class SignalApp(ctk.CTk):
             "11": ["A", "t1", "d", "f", "kw"]
         }
 
-        potrzebne = mapa.get(wybor, []) + ["bins", "fs_new", "bits", "sinc_n"]
+        potrzebne = mapa.get(wybor, []) + ["bins", "fs_new", "bits", "sinc_n", "M", "K",
+                                           "v_sig", "d0", "N_radar", "dt_sim", "v_obj", "T_rep", "n_reps"]
         for key in self.inputs:
             if key in potrzebne:
                 self.inputs[key]["frame"].pack(padx=20, pady=2, fill="x")
@@ -192,7 +235,6 @@ class SignalApp(ctk.CTk):
 
     def generate(self):
         try:
-            # Funkcja pomocnicza do bezpiecznego pobierania float
             def get_val(key):
                 val = self.inputs[key]["entry"].get()
                 return float(val) if val else 0.0
@@ -207,7 +249,6 @@ class SignalApp(ctk.CTk):
 
             nazwa_wyswietlana = self.signal_option_menu.get()
             wybor = self.warianty_dict[nazwa_wyswietlana]
-            # ... reszta kodu z IF-ami (wybor == "1" itd.) bez zmian ...
 
             if wybor == "1":
                 self.current_t, self.current_a = szum_o_rozkladzie_jednostkowym(A, t1, d, f)
@@ -265,9 +306,62 @@ class SignalApp(ctk.CTk):
         if self.sig1["a"] is None or self.sig2["a"] is None:
             messagebox.showwarning("Błąd", "Wczytaj oba pliki!")
             return
+
         a1, a2 = np.array(self.sig1["a"]), np.array(self.sig2["a"])
+
+        if op in ["Splot", "Kor_bezp", "Kor_splot"]:
+            M = len(a1)
+            N = len(a2)
+            dlugosc = M + N - 1
+
+            self.current_a = np.zeros(dlugosc)
+
+            if op == "Splot":
+                # Algorytm splotu
+                for n in range(dlugosc):
+                    suma = 0.0
+                    for k in range(M):
+                        if 0 <= n - k < N:
+                            suma += a1[k] * a2[n - k]
+                    self.current_a[n] = suma
+                nazwa_op = "Splot"
+
+            elif op == "Kor_bezp":
+                # WARIANT 1: Implementacja bezpośrednia korelacji wzajemnej
+                for m in range(dlugosc):
+                    suma = 0.0
+                    shift = m - (N - 1)
+                    for k in range(M):
+                        if 0 <= k - shift < N:
+                            suma += a1[k] * a2[k - shift]
+                    self.current_a[m] = suma
+                nazwa_op = "Korelacja (bezpośrednia)"
+
+            elif op == "Kor_splot":
+                # WARIANT 2: Implementacja z użyciem splotu
+                a2_rev = a2[::-1]
+                for n in range(dlugosc):
+                    suma = 0.0
+                    for k in range(M):
+                        if 0 <= n - k < N:
+                            suma += a1[k] * a2_rev[n - k]
+                    self.current_a[n] = suma
+                nazwa_op = "Korelacja (przez splot)"
+
+            if len(self.sig1["t"]) > 1:
+                dt = self.sig1["t"][1] - self.sig1["t"][0]
+            else:
+                dt = 1.0
+
+            t_start = self.sig1["t"][0]
+            self.current_t = np.array([t_start + i * dt for i in range(dlugosc)])
+
+            self.update_view(f"Operacja: {nazwa_op}")
+            return
+
         length = min(len(a1), len(a2))
         a1, a2 = a1[:length], a2[:length]
+
         if op == "+":
             self.current_a = a1 + a2
         elif op == "-":
@@ -275,7 +369,6 @@ class SignalApp(ctk.CTk):
         elif op == "*":
             self.current_a = a1 * a2
         elif op == "/":
-            # Zamiana zer na NaN, co wykres po prostu zignoruje bez generowania szpil
             a2_safe = np.where(np.abs(a2) < 1e-9, np.nan, a2)
             self.current_a = a1 / a2_safe
 
@@ -391,7 +484,6 @@ class SignalApp(ctk.CTk):
             return
 
         try:
-            # --- ORYGINAŁ ---
             self.oryginalny_t = np.array(self.current_t)
             self.oryginalny_a = np.array(self.current_a)
 
@@ -551,6 +643,181 @@ class SignalApp(ctk.CTk):
         self.stats_box.insert("end", f"MD (C4)  : {m_md:.4f}\n")
         if val_enob != float('inf'):
             self.stats_box.insert("end", f"ENOB     : {val_enob:.2f} bitów\n")
+
+    def perform_filtering(self):
+        if self.current_a is None or self.current_t is None:
+            messagebox.showwarning("Błąd", "Najpierw wygeneruj sygnał do przefiltrowania!")
+            return
+
+        try:
+            M = int(self.inputs["M"]["entry"].get())
+            K = float(self.inputs["K"]["entry"].get())
+
+            if M % 2 == 0:
+                M += 1
+                messagebox.showinfo("Informacja", f"Rząd filtru M musi być nieparzysty. Zmieniono M na {M}.")
+
+            h = np.zeros(M)
+            center = (M - 1) / 2
+
+            window_type = self.window_menu.get()
+            filter_type = self.filter_menu.get()
+
+            for n in range(M):
+                # 1. Baza: Idealny filtr dolnoprzepustowy
+                if n == center:
+                    h[n] = 2.0 / K
+                else:
+                    h[n] = np.sin(2.0 * np.pi * (n - center) / K) / (np.pi * (n - center))
+
+                if "Blackmana" in window_type:
+                    w = 0.42 - 0.5 * np.cos(2.0 * np.pi * n / M) + 0.08 * np.cos(4.0 * np.pi * n / M)
+                else:
+                    w = 1.0  # Okno prostokątne
+
+                h[n] *= w
+
+                if "Górnoprzepustowy" in filter_type:
+                    h[n] *= (-1) ** n
+
+            # Filtracja sygnału za pomocą splotu
+            x = np.array(self.current_a)
+            N_sig = len(x)
+            y = np.zeros(N_sig)
+
+            for n in range(N_sig):
+                suma = 0.0
+                for k in range(M):
+                    if n - k >= 0:
+                        suma += h[k] * x[n - k]
+                y[n] = suma
+
+            if self.oryginalny_a is None or len(self.oryginalny_a) != len(self.current_a):
+                self.oryginalny_a = self.current_a.copy()
+                self.oryginalny_t = self.current_t.copy()
+
+            self.current_a = y
+            rysuj_przebieg_czasowy(self.ax1, self.current_t, self.current_a,
+                                   tytul=f"Filtrowanie: {filter_type}...",
+                                   show_ref=False)
+            self.canvas.draw()
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Wystąpił błąd podczas filtracji: {e}")
+
+    def simulate_radar(self):
+        try:
+            # Odczyt parametrów środowiska i obiektu
+            dt_sim = float(self.inputs["dt_sim"]["entry"].get())
+            v_obj = float(self.inputs["v_obj"]["entry"].get())
+            V = float(self.inputs["v_sig"]["entry"].get())
+            d0 = float(self.inputs["d0"]["entry"].get())
+
+            # Odczyt parametrów czujnika
+            fs = float(self.inputs["f"]["entry"].get())
+            N = int(self.inputs["N_radar"]["entry"].get())
+            T_rep = float(self.inputs["T_rep"]["entry"].get())
+            T_probe = float(self.inputs["T"]["entry"].get()) if self.inputs["T"]["entry"].get() else 1.0
+            n_reps = int(self.inputs["n_reps"]["entry"].get())
+
+            self.stats_box.delete("0.0", "end")
+            self.stats_box.insert("end", "--- SYMULACJA RADARU (W CZASIE) ---\n")
+
+            historia_t = []
+            historia_d_true = []
+            historia_d_calc = []
+
+            for step in range(n_reps):
+                obecny_czas = step * T_rep
+
+                # Obliczenie rzeczywistej odległości w danej chwili (obiekt się porusza)
+                d_true = d0 + v_obj * obecny_czas
+                t_delay_true = (2.0 * d_true) / V  # Rzeczywiste opóźnienie sygnału
+
+                czas_bufora = N / fs
+
+                t_cont = np.arange(-t_delay_true - 1.0, czas_bufora + 1.0, dt_sim)
+
+                # Złożony, ciągły sygnał sondujący
+                x_cont = np.sin(2.0 * np.pi * (1.0 / T_probe) * t_cont) + 0.5 * np.cos(
+                    2.0 * np.pi * (2.0 / T_probe) * t_cont)
+
+                # Próbkowanie sygnałów do buforów (krok czujnika)
+                t_radar = np.arange(0, N) / fs
+
+                # Sygnał wysłany z radaru (próbkowany z x_cont)
+                x_sampled = np.interp(t_radar, t_cont, x_cont)
+
+                # Sygnał odebrany (prawidłowo opóźniony - odejmujemy opóźnienie od osi docelowej)
+                y_sampled = np.interp(t_radar - t_delay_true, t_cont, x_cont)
+
+                dlugosc_R = 2 * N - 1
+                R = np.zeros(dlugosc_R)
+
+                for m in range(dlugosc_R):
+                    suma = 0.0
+                    shift = m - (N - 1)
+                    for k in range(N):
+                        if 0 <= k - shift < N:
+                            suma += y_sampled[k] * x_sampled[k - shift]
+                    R[m] = suma
+
+                center_idx = N - 1
+                right_side = R[center_idx:]
+
+                peak_idx = np.argmax(right_side)
+                t_calc = peak_idx / fs
+                d_calc = (V * t_calc) / 2.0
+
+                historia_t.append(obecny_czas)
+                historia_d_true.append(d_true)
+                historia_d_calc.append(d_calc)
+
+                self.stats_box.insert("end",
+                                      f"Raport {step + 1} (t={obecny_czas}s) | Rzeczywista: {d_true:.2f}m | Zmierzona: {d_calc:.2f}m\n")
+
+            self.fig.clear()
+
+            ax1 = self.fig.add_subplot(311)
+            ax2 = self.fig.add_subplot(312)
+            ax3 = self.fig.add_subplot(313)
+            self.fig.subplots_adjust(hspace=0.6)
+
+            # --- Wykres 1: Sygnał oryginalny x ---
+            ax1.plot(x_sampled, color="black")
+            ax1.set_title("sygnał okresowy oryginalny x", loc='left', fontsize=10)
+            ax1.grid(True, linestyle="--")
+            ax1.set_xlim(0, N)
+
+            # --- Wykres 2: Sygnał opóźniony y ---
+            ax2.plot(y_sampled, color="black")
+            ax2.set_title(f"sygnał okresowy x opóźniony o {peak_idx} próbek zwany dalej sygnałem y", loc='left',
+                          fontsize=10)
+            ax2.grid(True, linestyle="--")
+            ax2.set_xlim(0, N)
+
+            # --- Wykres 3: Korelacja wzajemna ---
+            ax3.plot(R, color="black")
+            ax3.set_title("korelacja sygnałów y oraz x", loc='left', fontsize=10)
+            ax3.grid(True, linestyle="--")
+            ax3.set_xlim(0, len(R))
+
+            max_pos = center_idx + peak_idx
+            y_text = right_side[peak_idx] * 1.15 if right_side[peak_idx] > 0 else 50
+
+            ax3.annotate('pierwsze maksimum',
+                         xy=(max_pos, right_side[peak_idx]),
+                         xytext=(max_pos + 40, y_text),
+                         arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5),
+                         fontsize=10, fontweight='bold')
+
+            self.canvas.draw()
+
+            self.ax1 = ax1
+            self.ax2 = ax2
+
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Wystąpił błąd w symulacji radaru: {e}")
 
 if __name__ == "__main__":
     app = SignalApp()
