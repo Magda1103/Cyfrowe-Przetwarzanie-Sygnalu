@@ -77,12 +77,11 @@ class SignalApp(ctk.CTk):
         self.add_input("Okres (T) [s]", "T", "1.0")
         self.add_input("Współczynnik wypełnienia / p", "kw", "0.5")
         self.add_input("Moment skoku/impulsu (ts)", "ts", "5.0")
-        self.add_input("Biny (histogram)", "bins", "15")
-        self.add_input("Częstotliwość próbkowania (fs) docelowa [Hz]", "fs_new", "20.0")
-        self.add_input("Liczba bitów kwantyzatora (b)", "bits", "4")
-        self.add_input("Liczba próbek sinc (N)", "sinc_n", "10")
+        ##self.add_input("Biny (histogram)", "bins", "15")
+        ##self.add_input("Częstotliwość próbkowania (fs) docelowa [Hz]", "fs_new", "20.0")
+        ##self.add_input("Liczba bitów kwantyzatora (b)", "bits", "4")
+        ##self.add_input("Liczba próbek sinc (N)", "sinc_n", "10")
 
-        # ... istniejące parametry ...
         self.add_input("Rząd filtru (M)", "M", "63")
         self.add_input("Współczynnik odcięcia (K)", "K", "8.0")
 
@@ -170,7 +169,7 @@ class SignalApp(ctk.CTk):
         ops_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         ops_frame.pack(pady=5)
 
-        ops = [("+", "D1"), ("-", "D2"), ("*", "D3"), ("/", "D4"),
+        ops = [("+", "+"), ("-", "-"), ("*", "*"), ("/", "/"),
                ("Splot", "Splot"), ("Kor. bezp.", "Kor_bezp"), ("Kor. splot", "Kor_splot")]
 
         for i, op in enumerate(ops):
@@ -190,7 +189,7 @@ class SignalApp(ctk.CTk):
         # --- WYKRESY ---
         self.plot_frame = ctk.CTkFrame(self, fg_color="white")
         self.plot_frame.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
-        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(7, 9), facecolor='white')
+        self.fig, (self.ax1) = plt.subplots(1, 1, figsize=(7, 4.5), facecolor='white')
         self.fig.tight_layout(pad=6.0)
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas.get_tk_widget().pack(expand=True, fill="both")
@@ -282,6 +281,9 @@ class SignalApp(ctk.CTk):
                     t_arr = np.array(self.current_t)
                     a_arr = np.array(self.current_a)
 
+                    self.current_t = t_arr
+                    self.current_a = a_arr
+                    t_max = t1 + (liczba_pelnych_okresow * T)
                     maska = t_arr < t_max
                     self.current_t = t_arr[maska]
                     self.current_a = a_arr[maska]
@@ -307,17 +309,19 @@ class SignalApp(ctk.CTk):
             messagebox.showwarning("Błąd", "Wczytaj oba pliki!")
             return
 
-        a1, a2 = np.array(self.sig1["a"]), np.array(self.sig2["a"])
+        a1 = np.array(self.sig1["a"])
+        a2 = np.array(self.sig2["a"])
+        t1 = np.array(self.sig1["t"])
+        t2 = np.array(self.sig2["t"])
 
+        # --- Operacje splotu i korelacji (pozostawiamy bez zmian) ---
         if op in ["Splot", "Kor_bezp", "Kor_splot"]:
             M = len(a1)
             N = len(a2)
             dlugosc = M + N - 1
-
             self.current_a = np.zeros(dlugosc)
 
             if op == "Splot":
-                # Algorytm splotu
                 for n in range(dlugosc):
                     suma = 0.0
                     for k in range(M):
@@ -327,7 +331,6 @@ class SignalApp(ctk.CTk):
                 nazwa_op = "Splot"
 
             elif op == "Kor_bezp":
-                # WARIANT 1: Implementacja bezpośrednia korelacji wzajemnej
                 for m in range(dlugosc):
                     suma = 0.0
                     shift = m - (N - 1)
@@ -338,7 +341,6 @@ class SignalApp(ctk.CTk):
                 nazwa_op = "Korelacja (bezpośrednia)"
 
             elif op == "Kor_splot":
-                # WARIANT 2: Implementacja z użyciem splotu
                 a2_rev = a2[::-1]
                 for n in range(dlugosc):
                     suma = 0.0
@@ -348,31 +350,46 @@ class SignalApp(ctk.CTk):
                     self.current_a[n] = suma
                 nazwa_op = "Korelacja (przez splot)"
 
-            if len(self.sig1["t"]) > 1:
-                dt = self.sig1["t"][1] - self.sig1["t"][0]
-            else:
-                dt = 1.0
-
-            t_start = self.sig1["t"][0]
+            # Tworzenie osi czasu dla wyniku
+            dt = t1[1] - t1[0] if len(t1) > 1 else 1.0
+            t_start = t1[0]
             self.current_t = np.array([t_start + i * dt for i in range(dlugosc)])
-
             self.update_view(f"Operacja: {nazwa_op}")
             return
 
-        length = min(len(a1), len(a2))
-        a1, a2 = a1[:length], a2[:length]
+        # --- Operacje arytmetyczne (+, -, *, /) z interpolacją do wspólnej osi czasu ---
+        # Wyznaczamy wspólny przedział czasu
+        t_start = max(t1[0], t2[0])
+        t_end = min(t1[-1], t2[-1])
+        if t_start >= t_end:
+            messagebox.showerror("Błąd", "Sygnały nie pokrywają się w czasie.")
+            return
 
+        # Wybieramy mniejszy krok próbkowania (dla dokładności)
+        dt = min(t1[1] - t1[0], t2[1] - t2[0])
+        # Tworzymy wspólną oś czasu
+        t_common = np.arange(t_start, t_end + dt / 2, dt)
+
+        # Interpolujemy oba sygnały na wspólną oś
+        a1_int = np.interp(t_common, t1, a1)
+        a2_int = np.interp(t_common, t2, a2)
+
+        # Wykonujemy właściwą operację
         if op == "+":
-            self.current_a = a1 + a2
+            self.current_a = a1_int + a2_int
         elif op == "-":
-            self.current_a = a1 - a2
+            self.current_a = a1_int - a2_int
         elif op == "*":
-            self.current_a = a1 * a2
+            self.current_a = a1_int * a2_int
         elif op == "/":
-            a2_safe = np.where(np.abs(a2) < 1e-9, np.nan, a2)
-            self.current_a = a1 / a2_safe
+            # Zabezpieczenie przed dzieleniem przez zero
+            a2_safe = np.where(np.abs(a2_int) < 1e-9, np.nan, a2_int)
+            self.current_a = a1_int / a2_safe
+        else:
+            messagebox.showerror("Błąd", f"Nieznana operacja: {op}")
+            return
 
-        self.current_t = np.array(self.sig1["t"])[:length]
+        self.current_t = t_common
         self.update_view(f"Operacja: {op}")
 
     def update_view(self, nazwa, save_to_history=True):
@@ -393,23 +410,13 @@ class SignalApp(ctk.CTk):
             self.history_index = len(self.history) - 1
             self.update_nav_buttons()
 
-        if self.oryginalny_t is not None and self.oryginalny_a is not None:
-            rysuj_przebieg_czasowy(
-                self.ax1,
-                self.current_t,
-                self.current_a,
-                nazwa,
-                t_ref=self.oryginalny_t,
-                a_ref=self.oryginalny_a
-            )
-        else:
-            rysuj_przebieg_czasowy(
+        rysuj_przebieg_czasowy(
                 self.ax1,
                 self.current_t,
                 self.current_a,
                 nazwa
             )
-        rysuj_histogram(self.ax2, self.current_a, int(self.inputs["bins"]["entry"].get()))
+        ##rysuj_histogram(self.ax2, self.current_a, int(self.inputs["bins"]["entry"].get()))
         self.canvas.draw()
 
     def save_to_bin(self):
@@ -664,7 +671,7 @@ class SignalApp(ctk.CTk):
             filter_type = self.filter_menu.get()
 
             for n in range(M):
-                # 1. Baza: Idealny filtr dolnoprzepustowy
+                # filtr dolnoprzepustowy
                 if n == center:
                     h[n] = 2.0 / K
                 else:
