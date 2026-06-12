@@ -5,6 +5,11 @@ from file_manager import *
 from plot import *
 from generate import *
 import stats
+from signal_s3 import generate_s3
+from fourier import dft, fft_dif
+from wavelet import db6_transform
+import time
+
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -41,7 +46,8 @@ class SignalApp(ctk.CTk):
             "(S8) Sygnał trójkątny": "8",
             "(S9) Skok jednostkowy": "9",
             "(S10) Impuls jednostkowy": "10",
-            "(S11) Szum impulsowy": "11"
+            "(S11) Szum impulsowy": "11",
+            "(Z4-S3) Sygnał testowy zadania 4": "12"
         }
 
         self.grid_columnconfigure(1, weight=1)
@@ -96,6 +102,9 @@ class SignalApp(ctk.CTk):
         self.add_input("Okres raportowania [s]", "T_rep", "1.0")
         self.add_input("Liczba kroków symulacji (raportów)", "n_reps", "10")
 
+        ctk.CTkButton(self.sidebar, text="GENERUJ SYGNAŁ", command=self.generate, fg_color="#2ecc71",
+                      hover_color="#27ae60").pack(pady=10, padx=20, fill="x")
+
         # --- SEKCJA FILTRACJI ---
         ctk.CTkLabel(self.sidebar, text="FILTRACJA", font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(20, 5))
 
@@ -134,8 +143,7 @@ class SignalApp(ctk.CTk):
         ctk.CTkButton(konw_frame, text="Rekonstrukcja (R3 - Sinc)", command=lambda: self.perform_ca("R3"),
                       fg_color="#34495e").pack(pady=2, fill="x")
 
-        ctk.CTkButton(self.sidebar, text="GENERUJ SYGNAŁ", command=self.generate, fg_color="#2ecc71",
-                      hover_color="#27ae60").pack(pady=10, padx=20, fill="x")
+
 
         # Nawigacja i Buffory
         nav_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -175,6 +183,56 @@ class SignalApp(ctk.CTk):
         for i, op in enumerate(ops):
             ctk.CTkButton(ops_frame, text=op[0], width=90, command=lambda o=op[1]: self.perform_math(o)).grid(
                 row=i // 2, column=i % 2, padx=5, pady=5)
+
+        zad4_frame = ctk.CTkFrame(
+            self.sidebar,
+            fg_color="#e8f4ff"
+        )
+        zad4_frame.pack(
+            pady=(20, 10),
+            padx=10,
+            fill="x"
+        )
+
+        ctk.CTkLabel(
+            zad4_frame,
+            text="ZADANIE 4\n(F2 + T3 + S3)",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=(10, 5))
+
+        ctk.CTkButton(
+            zad4_frame,
+            text="DFT",
+            command=self.run_dft
+        ).pack(pady=2, padx=10, fill="x")
+
+        ctk.CTkButton(
+            zad4_frame,
+            text="FFT DIF",
+            command=self.run_fft
+        ).pack(pady=2, padx=10, fill="x")
+
+        ctk.CTkButton(
+            zad4_frame,
+            text="DB6",
+            command=self.run_db6
+        ).pack(pady=2, padx=10, fill="x")
+
+        self.fourier_mode = ctk.StringVar(value="W2")
+
+        ctk.CTkRadioButton(
+            zad4_frame,
+            text="W1 Re/Im",
+            variable=self.fourier_mode,
+            value="W1"
+        ).pack(anchor="w", padx=10)
+
+        ctk.CTkRadioButton(
+            zad4_frame,
+            text="W2 Moduł/Argument",
+            variable=self.fourier_mode,
+            value="W2"
+        ).pack(anchor="w", padx=10)
 
         ctk.CTkLabel(self.sidebar, text="PLIKI", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 0))
         ctk.CTkButton(self.sidebar, text="ZAPISZ BIEŻĄCY", command=self.save_to_bin, fg_color="#3498db").pack(pady=2,
@@ -271,6 +329,12 @@ class SignalApp(ctk.CTk):
                 self.current_t, self.current_a = impuls_jednostkowy(A, t1, d, ts, f)
             elif wybor == "11":
                 self.current_t, self.current_a = szum_impulsowy(A, t1, d, kw, f)
+            elif wybor == "12":
+
+                self.current_t, self.current_a = generate_s3()
+
+                self.inputs["f"]["entry"].delete(0, "end")
+                self.inputs["f"]["entry"].insert(0, "16")
 
             sygnaly_okresowe = ["3", "4", "5", "6", "7", "8"]
             if wybor in sygnaly_okresowe:
@@ -409,6 +473,9 @@ class SignalApp(ctk.CTk):
             self.history.append((np.array(self.current_t).copy(), np.array(self.current_a).copy(), nazwa))
             self.history_index = len(self.history) - 1
             self.update_nav_buttons()
+
+        self.fig.clear()
+        self.ax1 = self.fig.add_subplot(111)
 
         rysuj_przebieg_czasowy(
                 self.ax1,
@@ -825,6 +892,111 @@ class SignalApp(ctk.CTk):
 
         except Exception as e:
             messagebox.showerror("Błąd", f"Wystąpił błąd w symulacji radaru: {e}")
+
+
+
+    def run_dft(self):
+
+        if self.current_a is None:
+            return
+
+        start = time.perf_counter()
+
+        X = dft(self.current_a)
+
+        elapsed = time.perf_counter() - start
+
+        fs = float(self.inputs["f"]["entry"].get())
+
+        if self.fourier_mode.get() == "W1":
+            rysuj_fourier_w1(self.fig, X, fs)
+        else:
+            rysuj_fourier_w2(self.fig, X, fs)
+
+        self.canvas.draw()
+
+        self.stats_box.delete("0.0", "end")
+        self.stats_box.insert(
+            "end",
+            f"DFT\nCzas: {elapsed:.8f} s"
+        )
+
+    def run_fft(self):
+
+        if self.current_a is None:
+            return
+
+        if not self._check_power_of_two(
+                len(self.current_a),
+                "FFT DIF"):
+            return
+
+        start = time.perf_counter()
+
+        X = fft_dif(self.current_a)
+
+        elapsed = time.perf_counter() - start
+
+        fs = float(self.inputs["f"]["entry"].get())
+
+        if self.fourier_mode.get() == "W1":
+            rysuj_fourier_w1(self.fig, X, fs)
+        else:
+            rysuj_fourier_w2(self.fig, X, fs)
+
+        self.canvas.draw()
+
+        self.stats_box.delete("0.0", "end")
+        self.stats_box.insert(
+            "end",
+            f"FFT DIF\nCzas: {elapsed:.8f} s"
+        )
+
+    def run_db6(self):
+
+        if self.current_a is None:
+            return
+
+        approx, detail = db6_transform(self.current_a)
+
+        self.fig.clear()
+
+        ax1 = self.fig.add_subplot(311)
+        ax2 = self.fig.add_subplot(312)
+        ax3 = self.fig.add_subplot(313)
+
+        ax1.plot(self.current_a)
+        ax1.set_title("Sygnał wejściowy")
+
+        ax2.plot(approx)
+        ax2.set_title("DB6 - Aproksymacja")
+
+        ax3.plot(detail)
+        ax3.set_title("DB6 - Detal")
+
+        self.fig.tight_layout()
+
+        self.canvas.draw()
+
+
+    def _check_power_of_two(self, N, nazwa_transformacji):
+        """Sprawdza czy długość sygnału jest potęgą dwójki (2^n dla n=1..10)"""
+        if N < 2:
+            messagebox.showerror("Błąd", f"{nazwa_transformacji} wymaga co najmniej 2 próbek!")
+            return False
+
+        # Sprawdzenie czy N jest potęgą dwójki
+        if (N & (N - 1)) != 0:
+            dozwolone = [2 ** n for n in range(1, 11)]  # 2,4,8,...,1024
+            messagebox.showerror(
+                "Błąd",
+                f"{nazwa_transformacji} wymaga liczby próbek będącej potęgą dwójki.\n"
+                f"Aktualna długość: {N}\n"
+                f"Dozwolone długości: {dozwolone}"
+            )
+            return False
+        return True
+
 
 if __name__ == "__main__":
     app = SignalApp()
