@@ -80,6 +80,7 @@ class SignalApp(ctk.CTk):
         self.add_input("Czas start (t1)", "t1", "1.0")
         self.add_input("Czas trwania (d)", "d", "10.0")
         self.add_input("Częstotliwość próbkowania (f) [Hz]", "f", "100.0")
+        self.add_input("Liczba próbek (N)", "N", "64")
         self.add_input("Okres (T) [s]", "T", "1.0")
         self.add_input("Współczynnik wypełnienia / p", "kw", "0.5")
         self.add_input("Moment skoku/impulsu (ts)", "ts", "5.0")
@@ -279,7 +280,8 @@ class SignalApp(ctk.CTk):
             "8": ["A", "t1", "d", "f", "T", "kw"],
             "9": ["A", "t1", "d", "f", "ts"],
             "10": ["A", "t1", "d", "f", "ts"],
-            "11": ["A", "t1", "d", "f", "kw"]
+            "11": ["A", "t1", "d", "f", "kw"],
+            "12": ["N", "f"]
         }
 
         potrzebne = mapa.get(wybor, []) + ["bins", "fs_new", "bits", "sinc_n", "M", "K",
@@ -331,7 +333,16 @@ class SignalApp(ctk.CTk):
                 self.current_t, self.current_a = szum_impulsowy(A, t1, d, kw, f)
             elif wybor == "12":
 
-                self.current_t, self.current_a = generate_s3()
+                N = int(self.inputs["N"]["entry"].get())
+
+                if N not in [2 ** i for i in range(1, 11)]:
+                    messagebox.showerror(
+                        "Błąd",
+                        "N musi być potęgą dwójki od 2 do 1024"
+                    )
+                    return
+
+                self.current_t, self.current_a = generate_s3(N)
 
                 self.inputs["f"]["entry"].delete(0, "end")
                 self.inputs["f"]["entry"].insert(0, "16")
@@ -967,12 +978,19 @@ class SignalApp(ctk.CTk):
 
         ax1.plot(self.current_a)
         ax1.set_title("Sygnał wejściowy")
+        ax1.set_ylabel("Amplituda")
+        ax1.grid(True, linestyle="--", alpha=0.6)
 
         ax2.plot(approx)
         ax2.set_title("DB6 - Aproksymacja")
+        ax2.set_ylabel("Amplituda")
+        ax2.grid(True, linestyle="--", alpha=0.6)
 
         ax3.plot(detail)
         ax3.set_title("DB6 - Detal")
+        ax3.set_xlabel("Numer próbki")
+        ax3.set_ylabel("Amplituda")
+        ax3.grid(True, linestyle="--", alpha=0.6)
 
         self.fig.tight_layout()
 

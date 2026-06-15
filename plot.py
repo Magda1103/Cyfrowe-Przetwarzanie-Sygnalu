@@ -68,13 +68,15 @@ def rysuj_fourier_w1(fig, X, fs):
     ax1 = fig.add_subplot(211)
     ax2 = fig.add_subplot(212)
 
-    ax1.plot(freq, np.real(X))
+    ax1.plot(freq, np.real(X), linewidth=1.5)
+    ax1.grid(True, linestyle="--", alpha=0.6)
     ax1.set_title("W1 - Część rzeczywista")
     ax1.set_xlabel("f [Hz]")
     ax1.set_ylabel("Re(X)")
     ax1.grid(True)
 
-    ax2.plot(freq, np.imag(X))
+    ax2.plot(freq, np.imag(X), linewidth=1.5)
+    ax2.grid(True, linestyle="--", alpha=0.6)
     ax2.set_title("W1 - Część urojona")
     ax2.set_xlabel("f [Hz]")
     ax2.set_ylabel("Im(X)")
@@ -93,13 +95,25 @@ def rysuj_fourier_w2(fig, X, fs):
     ax1 = fig.add_subplot(211)
     ax2 = fig.add_subplot(212)
 
-    ax1.plot(freq, np.abs(X))
+    ax1.plot(freq, np.abs(X), linewidth=1.5)
+    ax1.grid(True, linestyle="--", alpha=0.6)
     ax1.set_title("W2 - Moduł")
     ax1.set_xlabel("f [Hz]")
     ax1.set_ylabel("|X|")
     ax1.grid(True)
 
-    ax2.plot(freq, np.angle(X))
+    phase = np.angle(X + 1e-15)
+    print("N =", len(X))
+    ax2.plot(freq, phase, linewidth=1.2)
+    ax2.grid(True, linestyle="--", alpha=0.6)
+    ax2.set_ylim(-np.pi, np.pi)
+    ax2.set_yticks(
+        [-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi]
+    )
+
+    ax2.set_yticklabels(
+        ["-π", "-π/2", "0", "π/2", "π"]
+    )
     ax2.set_title("W2 - Argument")
     ax2.set_xlabel("f [Hz]")
     ax2.set_ylabel("arg(X)")
